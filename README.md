@@ -47,6 +47,21 @@ For a selected symbol pair (A, B):
 - Augmented Dickey-Fuller (ADF) test for stationarity
 - Summary statistics updated in near real-time
 
+### 🔹 Mini Mean-Reversion Backtest (Z-score)
+
+- Lightweight, rule-based backtest built directly into the dashboard
+- Tests mean-reversion behavior of the spread between two correlated assets
+- Entry when `|z-score|` exceeds a configurable threshold
+- Exit when z-score reverts back to zero
+- Reports:
+  - Number of trades
+  - Win rate
+  - Average bars held
+  - Average z-score movement
+- Uses the same live resampled data as the analytics engine
+- Designed for signal validation and intuition-building, not full PnL simulation
+
+
 ### 🔹 Live Interactive Dashboard
 - Built using **Streamlit + Plotly**
 - Interactive controls for:
