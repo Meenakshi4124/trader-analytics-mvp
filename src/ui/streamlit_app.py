@@ -3,6 +3,93 @@ import requests
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import numpy as np
+import pandas as pd
+
+def backtest_mean_reversion_zscore(
+    df: pd.DataFrame,
+    z_col: str = "zscore",
+    ts_col: str = "ts",
+    entry_z: float = 2.0,
+    exit_z: float = 0.0,
+):
+    """
+    Simple mean-reversion backtest on z-score.
+    """
+    if df is None or df.empty or z_col not in df.columns:
+        return {"trades": 0}, pd.DataFrame()
+
+    d = df[[ts_col, z_col]].dropna().copy()
+    if d.empty:
+        return {"trades": 0}, pd.DataFrame()
+
+    d = d.sort_values(ts_col)
+
+    pos = 0
+    entry_idx = None
+    entry_ts = None
+    entry_zv = None
+
+    trades = []
+
+    z = d[z_col].to_numpy()
+    ts = d[ts_col].to_numpy()
+
+    for i in range(len(d)):
+        zi = float(z[i])
+
+        if pos == 0:
+            if zi >= entry_z:
+                pos = -1
+                entry_idx = i
+                entry_ts = ts[i]
+                entry_zv = zi
+            elif zi <= -entry_z:
+                pos = +1
+                entry_idx = i
+                entry_ts = ts[i]
+                entry_zv = zi
+
+        elif pos == -1 and zi <= exit_z:
+            trades.append({
+                "side": "SHORT",
+                "entry_ts": entry_ts,
+                "exit_ts": ts[i],
+                "entry_z": entry_zv,
+                "exit_z": zi,
+                "z_move": entry_zv - zi,
+                "bars_held": i - entry_idx,
+            })
+            pos = 0
+
+        elif pos == +1 and zi >= -exit_z:
+            trades.append({
+                "side": "LONG",
+                "entry_ts": entry_ts,
+                "exit_ts": ts[i],
+                "entry_z": entry_zv,
+                "exit_z": zi,
+                "z_move": zi - entry_zv,
+                "bars_held": i - entry_idx,
+            })
+            pos = 0
+
+    trades_df = pd.DataFrame(trades)
+
+    if trades_df.empty:
+        return {"trades": 0}, trades_df
+
+    trades_df["win"] = trades_df["z_move"] > 0
+
+    summary = {
+        "trades": len(trades_df),
+        "win_rate": trades_df["win"].mean(),
+        "avg_bars_held": trades_df["bars_held"].mean(),
+        "avg_z_move": trades_df["z_move"].mean(),
+    }
+
+    return summary, trades_df
+
 
 API = "http://127.0.0.1:8000"
 
@@ -57,6 +144,52 @@ col3.metric("Tick ts", str(tick_a.get("ts_iso", "-"))[:19])
 col4.metric("TF / window", f"{tf} / {window}")
 
 stats, table = get_pairs(a, b, tf, window, lookback_sec)
+
+if table.empty:
+    st.info("Not enough resampled data yet.")
+    st.stop()
+
+
+
+st.sidebar.markdown("### 🧪 Backtest (Z-score rules)")
+
+entry_z = st.sidebar.number_input(
+    "Backtest entry |z|", value=2.0, step=0.1
+)
+exit_z = st.sidebar.number_input(
+    "Backtest exit to 0", value=0.0, step=0.1
+)
+
+bt_summary, bt_trades = backtest_mean_reversion_zscore(
+    table,                 # 👈 use table (your variable)
+    z_col="zscore",
+    ts_col="ts",
+    entry_z=float(entry_z),
+    exit_z=float(exit_z),
+)
+
+st.subheader("🧪 Mini mean-reversion backtest (z-score rules)")
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Trades", bt_summary.get("trades", 0))
+c2.metric(
+    "Win rate",
+    f"{bt_summary.get('win_rate', 0.0)*100:.1f}%"
+    if bt_summary.get("trades", 0) > 0 else "—"
+)
+c3.metric(
+    "Avg bars held",
+    f"{bt_summary.get('avg_bars_held', 0.0):.1f}"
+    if bt_summary.get("trades", 0) > 0 else "—"
+)
+c4.metric(
+    "Avg z-move",
+    f"{bt_summary.get('avg_z_move', 0.0):.3f}"
+    if bt_summary.get("trades", 0) > 0 else "—"
+)
+
+with st.expander("View trades"):
+    st.dataframe(bt_trades, use_container_width=True)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("beta (OLS)", f"{stats.get('beta','-'):.4f}" if isinstance(stats.get("beta"), (int,float)) else "-")
